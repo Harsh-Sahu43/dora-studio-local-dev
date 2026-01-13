@@ -87,6 +87,9 @@ All dependencies are pure Rust with no C/C++ components:
 
 > **Note**: We deliberately avoid DuckDB (which has a C++ core) to maintain a 100% Rust codebase.
 
+## AI Coding Stack (100% Rust)
+- **[makepad-skills](https://github.com/ZhangHanDong/makepad-skills) for App UI**
+
 ## Related Projects
 
 - **[Dora](../dora/)** - The dataflow framework this dashboard manages
