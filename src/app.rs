@@ -2,6 +2,11 @@ use makepad_widgets::*;
 use crate::dataflow::{DataflowInfo, DataflowTableWidgetRefExt};
 use crate::tools::execute_tool;
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::otlp::bridge;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::traces::TracesPanelWidgetRefExt;
+
 // Auto-refresh interval in seconds
 const AUTO_REFRESH_INTERVAL: f64 = 5.0;
 
@@ -12,11 +17,18 @@ live_design! {
 
     use crate::chat::chat_screen::ChatScreen;
     use crate::dataflow::dataflow_table::DataflowTable;
+    use crate::traces::traces_panel::TracesPanel;
 
     // Colors
     SIDEBAR_BG = #1e293b
     MAIN_BG = #f8fafc
     DIVIDER_COLOR = #e2e8f0
+    HEADER_BG = #1e3a5f
+    HEADER_TEXT = #ffffff
+    TAB_ACTIVE_BG = #2d4a6f
+    TAB_INACTIVE_BG = #1e3a5f
+    CONNECTION_OK = #4ade80
+    CONNECTION_ERR = #f87171
 
     App = {{App}} {
         ui: <Root> {
@@ -28,14 +40,83 @@ live_design! {
                     show_bg: true
                     draw_bg: { color: (MAIN_BG) }
 
-                    // Top panel - Dataflow Table
+                    // Shared title bar with tabs
+                    <View> {
+                        width: Fill, height: 48
+                        flow: Right
+                        show_bg: true
+                        draw_bg: { color: (HEADER_BG) }
+                        padding: { left: 16, right: 16 }
+                        align: { y: 0.5 }
+                        spacing: 8
+
+                        <Label> {
+                            width: Fit, height: Fit
+                            draw_text: {
+                                color: (HEADER_TEXT),
+                                text_style: { font_size: 16.0 }
+                            }
+                            text: "Dora Studio"
+                        }
+
+                        // Spacer between title and tabs
+                        <View> { width: 16, height: Fit }
+
+                        tab_dataflows = <Button> {
+                            width: 100, height: 32
+                            text: "Dataflows"
+                            draw_text: { text_style: { font_size: 12.0 } }
+                        }
+
+                        tab_traces = <Button> {
+                            width: 80, height: 32
+                            text: "Traces"
+                            draw_text: { text_style: { font_size: 12.0 } }
+                        }
+
+                        // Spacer to push right-side items
+                        <View> { width: Fill, height: Fit }
+
+                        connection_label = <Label> {
+                            width: Fit, height: Fit
+                            draw_text: {
+                                color: (HEADER_TEXT),
+                                text_style: { font_size: 11.0 }
+                            }
+                            text: ""
+                        }
+
+                        refresh_button = <Button> {
+                            width: 80, height: 32
+                            text: "Refresh"
+                            draw_text: { text_style: { font_size: 12.0 } }
+                        }
+                    }
+
+                    // Panels container
                     <View> {
                         width: Fill, height: Fill
                         flow: Down
-                        align: { x: 0.0, y: 0.0 }
-                        padding: { top: 0, left: 16, right: 16, bottom: 16 }
 
-                        dataflow_table = <DataflowTable> {}
+                        // Dataflow panel (visible by default)
+                        dataflow_view = <View> {
+                            width: Fill, height: Fill
+                            flow: Down
+                            align: { x: 0.0, y: 0.0 }
+                            padding: { top: 0, left: 16, right: 16, bottom: 16 }
+
+                            dataflow_table = <DataflowTable> {}
+                        }
+
+                        // Traces panel (hidden by default)
+                        traces_view = <View> {
+                            width: Fill, height: 0
+                            flow: Down
+                            align: { x: 0.0, y: 0.0 }
+                            padding: { top: 0, left: 16, right: 16, bottom: 16 }
+
+                            traces_panel = <TracesPanel> {}
+                        }
                     }
 
                     // Divider line
@@ -62,6 +143,13 @@ live_design! {
 
 app_main!(App);
 
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum ActivePanel {
+    #[default]
+    Dataflows,
+    Traces,
+}
+
 #[derive(Live, LiveHook)]
 pub struct App {
     #[live]
@@ -72,6 +160,12 @@ pub struct App {
     initialized: bool,
     #[rust]
     last_refresh_time: f64,
+    #[rust]
+    active_panel: ActivePanel,
+    #[rust]
+    signoz_available: bool,
+    #[rust]
+    traces_loaded_once: bool,
 }
 
 impl LiveRegister for App {
@@ -79,6 +173,8 @@ impl LiveRegister for App {
         crate::makepad_widgets::live_design(cx);
         crate::chat::live_design(cx);
         crate::dataflow::live_design(cx);
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::traces::live_design(cx);
         // Light theme
         cx.link(live_id!(theme), live_id!(theme_desktop_light));
     }
@@ -89,18 +185,52 @@ impl MatchEvent for App {
         // Initialize API key from environment variable
         crate::api::init_api_key_from_env();
 
+        // Initialize SigNoz bridge from env vars
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.signoz_available = bridge::init_signoz_from_env();
+            if self.signoz_available {
+                bridge::request_health_check();
+            }
+        }
+
         // Schedule initial data load for next frame (after UI is ready)
         self.next_frame = cx.new_next_frame();
     }
 
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions) {
-        // Handle DataflowTable actions using direct button click checks
-        let table = self.ui.dataflow_table(ids!(dataflow_table));
-
-        if table.refresh_clicked(actions) {
-            log!("[App] Refresh button clicked - refreshing dataflows");
-            self.refresh_dataflows(cx);
+        // Handle tab buttons
+        if self.ui.button(ids!(tab_dataflows)).clicked(actions) {
+            self.switch_to_panel(cx, ActivePanel::Dataflows);
         }
+
+        if self.ui.button(ids!(tab_traces)).clicked(actions) {
+            self.switch_to_panel(cx, ActivePanel::Traces);
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.signoz_available && !self.traces_loaded_once {
+                self.refresh_traces(cx);
+            }
+        }
+
+        // Handle shared refresh button
+        if self.ui.button(ids!(refresh_button)).clicked(actions) {
+            match self.active_panel {
+                ActivePanel::Dataflows => {
+                    log!("[App] Refresh button clicked - refreshing dataflows");
+                    self.refresh_dataflows(cx);
+                }
+                ActivePanel::Traces => {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        log!("[App] Refresh button clicked - refreshing traces");
+                        self.refresh_traces(cx);
+                    }
+                }
+            }
+        }
+
+        // Handle DataflowTable row actions
+        let table = self.ui.dataflow_table(ids!(dataflow_table));
 
         if let Some(uuid) = table.stop_clicked(actions) {
             log!("[App] Stop button clicked for {}", uuid);
@@ -135,10 +265,31 @@ impl AppMain for App {
                 let elapsed = ne.time - self.last_refresh_time;
                 if elapsed >= AUTO_REFRESH_INTERVAL {
                     self.last_refresh_time = ne.time;
-                    log!("[App] Auto-refresh triggered after {:.1}s", elapsed);
-                    self.refresh_dataflows(cx);
+
+                    match self.active_panel {
+                        ActivePanel::Dataflows => {
+                            log!("[App] Auto-refresh triggered after {:.1}s", elapsed);
+                            self.refresh_dataflows(cx);
+                        }
+                        ActivePanel::Traces => {
+                            #[cfg(not(target_arch = "wasm32"))]
+                            if self.signoz_available {
+                                log!("[App] Auto-refresh traces after {:.1}s", elapsed);
+                                self.refresh_traces(cx);
+                            }
+                        }
+                    }
                 }
             }
+
+            // Poll SigNoz responses
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                for response in bridge::take_signoz_responses() {
+                    self.handle_signoz_response(cx, response);
+                }
+            }
+
             // Schedule the next frame to keep auto-refresh running
             self.next_frame = cx.new_next_frame();
         }
@@ -148,6 +299,29 @@ impl AppMain for App {
 }
 
 impl App {
+    fn switch_to_panel(&mut self, cx: &mut Cx, panel: ActivePanel) {
+        self.active_panel = panel;
+        match panel {
+            ActivePanel::Dataflows => {
+                self.ui
+                    .view(ids!(dataflow_view))
+                    .apply_over(cx, live! { height: Fill });
+                self.ui
+                    .view(ids!(traces_view))
+                    .apply_over(cx, live! { height: 0 });
+            }
+            ActivePanel::Traces => {
+                self.ui
+                    .view(ids!(dataflow_view))
+                    .apply_over(cx, live! { height: 0 });
+                self.ui
+                    .view(ids!(traces_view))
+                    .apply_over(cx, live! { height: Fill });
+            }
+        }
+        self.ui.redraw(cx);
+    }
+
     fn refresh_dataflows(&mut self, cx: &mut Cx) {
         log!("[App] refresh_dataflows called");
         let table = self.ui.dataflow_table(ids!(dataflow_table));
@@ -168,6 +342,47 @@ impl App {
             };
             log!("[App] Parsed {} dataflows", dataflows.len());
             table.set_dataflows(cx, dataflows);
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn refresh_traces(&mut self, cx: &mut Cx) {
+        log!("[App] refresh_traces called");
+        let panel = self.ui.traces_panel(ids!(traces_panel));
+        panel.set_loading(cx);
+
+        let mut query = crate::otlp::types::TraceQuery::default();
+        query.limit = Some(100);
+        bridge::request_traces(query);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn handle_signoz_response(&mut self, cx: &mut Cx, response: crate::otlp::SignozResponse) {
+        match response {
+            crate::otlp::SignozResponse::HealthOk => {
+                log!("[App] SigNoz connected");
+                self.ui
+                    .label(ids!(connection_label))
+                    .set_text(cx, "Connected");
+            }
+            crate::otlp::SignozResponse::HealthError(e) => {
+                log!("[App] SigNoz health error: {}", e);
+                let msg = format!("SigNoz: {}", truncate_str(&e, 40));
+                self.ui
+                    .label(ids!(connection_label))
+                    .set_text(cx, &msg);
+            }
+            crate::otlp::SignozResponse::Traces(spans) => {
+                log!("[App] Received {} trace spans", spans.len());
+                self.traces_loaded_once = true;
+                let panel = self.ui.traces_panel(ids!(traces_panel));
+                panel.set_spans(cx, spans);
+            }
+            crate::otlp::SignozResponse::TracesError(e) => {
+                log!("[App] Traces query error: {}", e);
+                let panel = self.ui.traces_panel(ids!(traces_panel));
+                panel.set_error(cx, &e);
+            }
         }
     }
 
@@ -207,8 +422,18 @@ impl App {
     }
 }
 
+fn truncate_str(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max])
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     // ============================================================================
     // App Configuration Tests
     // ============================================================================
@@ -269,6 +494,22 @@ mod tests {
         assert_eq!(r, 0x1a);
         assert_eq!(g, 0x1a);
         assert_eq!(b, 0x30);
+    }
+
+    // ============================================================================
+    // Active Panel Tests
+    // ============================================================================
+
+    #[test]
+    fn test_active_panel_default() {
+        let panel = ActivePanel::default();
+        assert_eq!(panel, ActivePanel::Dataflows);
+    }
+
+    #[test]
+    fn test_truncate_str() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+        assert_eq!(truncate_str("hello world", 5), "hello...");
     }
 
     // ============================================================================

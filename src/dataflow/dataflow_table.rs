@@ -33,34 +33,6 @@ live_design! {
     BTN_LOGS_BG = #e0e7ff
     BTN_LOGS_TEXT = #4f46e5
 
-    // Table title bar
-    TableTitleBar = <View> {
-        width: Fill, height: 48
-        flow: Right
-        show_bg: true
-        draw_bg: { color: (HEADER_BG) }
-        padding: { left: 16, right: 16 }
-        align: { y: 0.5 }
-        spacing: 16
-
-        <Label> {
-            width: Fit, height: Fit
-            draw_text: {
-                color: (HEADER_TEXT),
-                text_style: { font_size: 16.0 }
-            }
-            text: "Dora Studio"
-        }
-
-        <View> { width: Fill, height: Fit }
-
-        refresh_button = <Button> {
-            width: 80, height: 32
-            text: "Refresh"
-            draw_text: { text_style: { font_size: 12.0 } }
-        }
-    }
-
     // Table header row
     TableHeader = <View> {
         width: Fill, height: 40
@@ -318,9 +290,6 @@ live_design! {
         width: Fill, height: Fit
         flow: Down
 
-        // Title bar with refresh button
-        <TableTitleBar> {}
-
         // Header
         <TableHeader> {}
 
@@ -456,19 +425,6 @@ impl WidgetMatchEvent for DataflowTable {
             "[DataflowTable] handle_actions called, actions count: {}",
             actions.len()
         );
-
-        // Handle refresh button
-        let refresh_btn = self.view.button(ids!(refresh_button));
-        let btn_exists = refresh_btn.borrow().is_some();
-        log!("[DataflowTable] refresh_button exists: {}", btn_exists);
-
-        if refresh_btn.clicked(actions) {
-            log!(
-                "[DataflowTable] Refresh button clicked! widget_uid={:?}",
-                self.widget_uid()
-            );
-            cx.widget_action(self.widget_uid(), &scope.path, DataflowTableAction::Refresh);
-        }
 
         // Handle row action buttons via PortalList
         let table_list = self.view.portal_list(ids!(table_list));
@@ -701,15 +657,6 @@ impl DataflowTableRef {
             item.cast()
         } else {
             None
-        }
-    }
-
-    /// Check if the refresh button was clicked (direct check, bypasses action system)
-    pub fn refresh_clicked(&self, actions: &Actions) -> bool {
-        if let Some(inner) = self.borrow() {
-            inner.view.button(ids!(refresh_button)).clicked(actions)
-        } else {
-            false
         }
     }
 
