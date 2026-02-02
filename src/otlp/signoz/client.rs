@@ -160,8 +160,8 @@ impl SigNozBackend {
                         operation_name: json_str(data, "name"),
                         start_time_ms: data
                             .get("timestamp")
-                            .or_else(|| row.timestamp.as_ref().map(|_| data.get("timestamp").unwrap_or(&serde_json::Value::Null)))
                             .and_then(|v| parse_timestamp(v))
+                            .or_else(|| row.timestamp.as_deref().and_then(parse_iso8601_to_ms))
                             .unwrap_or(0),
                         duration_ms: data
                             .get("durationNano")
@@ -198,6 +198,7 @@ impl SigNozBackend {
                         timestamp_ms: data
                             .get("timestamp")
                             .and_then(|v| parse_timestamp(v))
+                            .or_else(|| row.timestamp.as_deref().and_then(parse_iso8601_to_ms))
                             .unwrap_or(0),
                         severity: json_str(data, "severity_text"),
                         body: json_str(data, "body"),
@@ -360,6 +361,67 @@ fn parse_timestamp(v: &serde_json::Value) -> Option<u64> {
     } else {
         None
     }
+}
+
+/// Parse an ISO 8601 / RFC 3339 timestamp string to milliseconds since epoch.
+/// Handles formats like "2026-02-02T19:40:37.126981Z" and "2026-02-02T19:40:37Z".
+fn parse_iso8601_to_ms(s: &str) -> Option<u64> {
+    // Expected: "YYYY-MM-DDTHH:MM:SS[.frac]Z"
+    let s = s.trim();
+    let (date_part, time_part) = s.split_once('T')?;
+    let time_part = time_part.strip_suffix('Z')
+        .or_else(|| {
+            // Handle +00:00 offset
+            if time_part.ends_with("+00:00") {
+                Some(&time_part[..time_part.len() - 6])
+            } else {
+                Some(time_part)
+            }
+        })?;
+
+    let mut date_iter = date_part.splitn(3, '-');
+    let year: i64 = date_iter.next()?.parse().ok()?;
+    let month: i64 = date_iter.next()?.parse().ok()?;
+    let day: i64 = date_iter.next()?.parse().ok()?;
+
+    let (time_hms, frac_str) = if let Some((hms, frac)) = time_part.split_once('.') {
+        (hms, frac)
+    } else {
+        (time_part, "0")
+    };
+
+    let mut time_iter = time_hms.splitn(3, ':');
+    let hour: i64 = time_iter.next()?.parse().ok()?;
+    let minute: i64 = time_iter.next()?.parse().ok()?;
+    let second: i64 = time_iter.next()?.parse().ok()?;
+
+    // Parse fractional seconds to milliseconds
+    let frac_ms: u64 = if frac_str.len() >= 3 {
+        frac_str[..3].parse().unwrap_or(0)
+    } else {
+        let padded = format!("{:0<3}", frac_str);
+        padded.parse().unwrap_or(0)
+    };
+
+    // Days from epoch (1970-01-01) using a simplified calculation
+    let days = days_from_civil(year, month, day);
+    let total_secs = days * 86400 + hour * 3600 + minute * 60 + second;
+
+    if total_secs < 0 {
+        return None;
+    }
+
+    Some(total_secs as u64 * 1000 + frac_ms)
+}
+
+/// Convert a civil date to days since 1970-01-01 (Howard Hinnant's algorithm).
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u64;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) as u64 + 2) / 5 + d as u64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe as i64 - 719468
 }
 
 fn extract_string_map(data: &HashMap<String, serde_json::Value>) -> HashMap<String, String> {
@@ -559,6 +621,30 @@ mod tests {
     fn test_parse_timestamp_string() {
         let val = serde_json::json!("1700000000000000000");
         assert_eq!(parse_timestamp(&val), Some(1700000000000));
+    }
+
+    #[test]
+    fn test_parse_iso8601_basic() {
+        assert_eq!(
+            parse_iso8601_to_ms("2026-02-02T19:40:37.126981Z"),
+            Some(1770061237126)
+        );
+    }
+
+    #[test]
+    fn test_parse_iso8601_no_frac() {
+        assert_eq!(
+            parse_iso8601_to_ms("2026-02-02T19:40:37Z"),
+            Some(1770061237000)
+        );
+    }
+
+    #[test]
+    fn test_parse_iso8601_epoch() {
+        assert_eq!(
+            parse_iso8601_to_ms("1970-01-01T00:00:00Z"),
+            Some(0)
+        );
     }
 
     #[test]
