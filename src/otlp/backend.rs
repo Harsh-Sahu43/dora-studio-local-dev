@@ -7,9 +7,7 @@ use crate::otlp::types::*;
 /// in `mod.rs` dispatches to them, avoiding the need for `async-trait`.
 pub trait TelemetryBackend {
     /// Check that the backend is reachable and authenticated.
-    fn health_check(
-        &self,
-    ) -> impl std::future::Future<Output = Result<(), OtlpError>> + Send;
+    fn health_check(&self) -> impl std::future::Future<Output = Result<(), OtlpError>> + Send;
 
     /// List services known to the backend.
     fn list_services(

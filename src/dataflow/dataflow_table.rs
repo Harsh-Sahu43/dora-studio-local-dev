@@ -581,7 +581,8 @@ impl DataflowTable {
                 item.label(ids!(uuid_label)).set_text(cx, &df.uuid_short());
                 item.label(ids!(name_label)).set_text(cx, &df.name);
                 item.label(ids!(status_label)).set_text(cx, &df.status);
-                item.label(ids!(cpu_label)).set_text(cx, &df.cpu_formatted());
+                item.label(ids!(cpu_label))
+                    .set_text(cx, &df.cpu_formatted());
                 item.label(ids!(memory_label))
                     .set_text(cx, &df.memory_formatted());
 
@@ -665,10 +666,10 @@ impl DataflowTableRef {
         if let Some(inner) = self.borrow() {
             let table_list = inner.view.portal_list(ids!(table_list));
             for (item_id, item) in table_list.items_with_actions(actions) {
-                if item_id < inner.dataflows.len() {
-                    if item.button(ids!(stop_button)).clicked(actions) {
-                        return Some(inner.dataflows[item_id].uuid.clone());
-                    }
+                if item_id < inner.dataflows.len()
+                    && item.button(ids!(stop_button)).clicked(actions)
+                {
+                    return Some(inner.dataflows[item_id].uuid.clone());
                 }
             }
         }
@@ -680,10 +681,10 @@ impl DataflowTableRef {
         if let Some(inner) = self.borrow() {
             let table_list = inner.view.portal_list(ids!(table_list));
             for (item_id, item) in table_list.items_with_actions(actions) {
-                if item_id < inner.dataflows.len() {
-                    if item.button(ids!(destroy_button)).clicked(actions) {
-                        return Some(inner.dataflows[item_id].uuid.clone());
-                    }
+                if item_id < inner.dataflows.len()
+                    && item.button(ids!(destroy_button)).clicked(actions)
+                {
+                    return Some(inner.dataflows[item_id].uuid.clone());
                 }
             }
         }
@@ -695,10 +696,10 @@ impl DataflowTableRef {
         if let Some(inner) = self.borrow() {
             let table_list = inner.view.portal_list(ids!(table_list));
             for (item_id, item) in table_list.items_with_actions(actions) {
-                if item_id < inner.dataflows.len() {
-                    if item.button(ids!(logs_button)).clicked(actions) {
-                        return Some(inner.dataflows[item_id].uuid.clone());
-                    }
+                if item_id < inner.dataflows.len()
+                    && item.button(ids!(logs_button)).clicked(actions)
+                {
+                    return Some(inner.dataflows[item_id].uuid.clone());
                 }
             }
         }
