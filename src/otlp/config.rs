@@ -5,14 +5,9 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type")]
 pub enum AuthMethod {
     #[serde(rename = "api_key")]
-    ApiKey {
-        header_name: String,
-        key: String,
-    },
+    ApiKey { header_name: String, key: String },
     #[serde(rename = "bearer_token")]
-    BearerToken {
-        token: String,
-    },
+    BearerToken { token: String },
     #[serde(rename = "none")]
     None,
 }

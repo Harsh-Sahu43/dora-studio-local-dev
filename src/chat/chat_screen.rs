@@ -1,6 +1,8 @@
+use crate::api::{
+    submit_chat_request, take_pending_response, ChatMessage, ChatResponse, MessageRole,
+};
 use makepad_widgets::*;
 use std::cell::RefMut;
-use crate::api::{ChatMessage, MessageRole, submit_chat_request, ChatResponse, take_pending_response};
 
 live_design! {
     use link::theme::*;
@@ -140,10 +142,14 @@ live_design! {
 
 #[derive(Live, LiveHook, Widget)]
 pub struct ChatScreen {
-    #[deref] view: View,
-    #[rust] messages: Vec<ChatMessage>,
-    #[rust] is_loading: bool,
-    #[rust] next_frame: NextFrame,
+    #[deref]
+    view: View,
+    #[rust]
+    messages: Vec<ChatMessage>,
+    #[rust]
+    is_loading: bool,
+    #[rust]
+    next_frame: NextFrame,
 }
 
 impl Widget for ChatScreen {
@@ -185,14 +191,14 @@ impl Widget for ChatScreen {
 
 impl WidgetMatchEvent for ChatScreen {
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions, _scope: &mut Scope) {
-        if self.view.button(ids!(send_button)).clicked(&actions) {
+        if self.view.button(ids!(send_button)).clicked(actions) {
             self.send_message(cx);
         }
 
         if self
             .view
             .text_input(ids!(message_input))
-            .returned(&actions)
+            .returned(actions)
             .is_some()
         {
             self.send_message(cx);
