@@ -365,14 +365,11 @@ fn parse_iso8601_to_ms(s: &str) -> Option<u64> {
     // Expected: "YYYY-MM-DDTHH:MM:SS[.frac]Z"
     let s = s.trim();
     let (date_part, time_part) = s.split_once('T')?;
-    let time_part = time_part.strip_suffix('Z').or_else(|| {
-        // Handle +00:00 offset
-        if time_part.ends_with("+00:00") {
-            Some(&time_part[..time_part.len() - 6])
-        } else {
-            Some(time_part)
-        }
-    })?;
+    // Handle +00:00 offset
+    let time_part = time_part
+        .strip_suffix('Z')
+        .or_else(|| time_part.strip_suffix("+00:00"))
+        .or(Some(time_part))?;
 
     let mut date_iter = date_part.splitn(3, '-');
     let year: i64 = date_iter.next()?.parse().ok()?;

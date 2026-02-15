@@ -356,8 +356,10 @@ impl App {
         let panel = self.ui.traces_panel(ids!(traces_panel));
         panel.set_loading(cx);
 
-        let mut query = crate::otlp::types::TraceQuery::default();
-        query.limit = Some(100);
+        let query = crate::otlp::types::TraceQuery {
+            limit: Some(100),
+            ..Default::default()
+        };
         bridge::request_traces(query);
     }
 
